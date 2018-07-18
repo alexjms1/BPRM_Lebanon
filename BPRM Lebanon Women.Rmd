@@ -1,0 +1,407 @@
+---
+title: "BPRM Lebanon data analysis"
+header-includes:
+- \usepackage{booktabs}
+- \usepackage{rotating}
+- \usepackage{longtable}
+- \usepackage{dcolumn}
+output:
+  pdf_document:
+    fig_crop: no
+  html_notebook: default
+  html_document:
+    df_print: paged
+  word_document: default
+geometry: margin=.5in
+---
+```{r, message = FALSE, warnings = FALSE}
+library(readxl)
+library(dplyr)
+library(magrittr)
+library(haven)
+library(ordinal)
+library(ggplot2)
+library(xtable)
+library(stringr)
+library(sjlabelled)
+library(reporttools)
+setwd("C:/Users/ajame/Dropbox/BPRM/Lebanon")
+```
+
+```{r}
+campaign <- read_excel("campaign.xlsx")
+phase3 <- read_excel("phase3.xlsx")
+conditions <- read_excel("conditions_key.xlsx")
+campaign %<>% rename(ID = Q2)
+phase3 %<>% rename(ID  = Q2, usable = `Usable subjects`)
+campaign$ID <- trimws(toupper(campaign$ID))
+phase3$ID <- trimws(toupper(phase3$ID))
+conditions$ID <- trimws(toupper(conditions$ID))
+conditions$cond <- factor(conditions$cond, levels = levels(factor(conditions$cond))[c(3,1,2)], labels = c('Control','Campaign1', 'Campaign2'))
+
+
+campaign$ID[campaign$ID == "86"] <- "W86"
+campaign$ID[campaign$ID=="M123"] <- "W123"
+campaign$ID[campaign$ID=="M158"] <- "W158"
+campaign$ID[campaign$StartDate == as.POSIXct("2018-04-23 04:22:22", tz = "UTC")] <- "M201"
+campaign <- campaign[campaign$StartDate != as.POSIXct("2018-04-24 06:44:51", tz = "UTC") & campaign$StartDate != as.POSIXct("2018-05-08 04:43:12", tz = "UTC"), ]
+#campaign$ID_gender <- factor(substr(campaign$ID, 1, 1), labels = c("Men", "Women"))
+campaign <- left_join(campaign, conditions %>% select(ID, cond), by = c("ID" = "ID") )
+
+phase3$ID[phase3$ID == "M26O"] <- "M260"
+phase3$ID[phase3$StartDate == as.POSIXct("2018-04-27 03:21:04", tz = "UTC")] <- "W74"
+phase3$ID[phase3$StartDate == as.POSIXct("2018-04-27 07:54:00", tz = "UTC")] <- "W68"
+phase3 <- phase3[phase3$StartDate != as.POSIXct("2018-05-11 06:35:37", tz = "UTC") & phase3$StartDate != as.POSIXct("2018-05-14 01:54:31", tz = "UTC") & phase3$StartDate != as.POSIXct("2018-05-02 01:57:55", tz = "UTC") & phase3$StartDate != as.POSIXct("2018-05-02 02:30:12", tz = "UTC") & phase3$StartDate != as.POSIXct("2018-05-02 03:02:45", tz = "UTC"), ]
+phase3$ID_gender <- factor(substr(phase3$ID, 1, 1), labels = c("Men", "Women"))
+phase3$usable <- factor(phase3$usable, levels = levels(factor(phase3$usable))[c(3,1,2)], labels = c('Control','Campaign1', 'Campaign2'))
+phase3 <- left_join(phase3, conditions %>% select(ID, cond), by = c("ID" = "ID") )
+
+#excluding campaign 2 for now
+phase3 <- phase3[phase3$usable != "Campaign1" & !is.na(phase3$usable),]
+phase3 %<>% filter(ID_gender == "Women")
+#ij_c <- inner_join(campaign, phase3, by = "ID")
+#ij_p <- inner_join(phase3, campaign, by = "ID")
+#aj_c <- anti_join(campaign, phase3, by = "ID")
+#aj_p <- anti_join(phase3, campaign, by = "ID")
+#controls <- phase3 %>% filter(cond == 3)
+```
+
+```{r}
+ID_gender <- phase3 %>% select(ID_gender) %>% as.data.frame
+```
+
+```{r}
+phase3 %<>% rename(EffIndiv1 = Q78, EffIndiv2 = Q80, EffIndiv3 = Q82, EffComm1 = Q85)
+
+phase3 %<>% mutate_at(vars(starts_with("EffIndiv"), EffComm1), funs(replace(., equals(., 5), NA)))
+phase3$EffComm1 <- factor(phase3$EffComm1)
+phase3$EffIndiv_scale <- phase3 %>% select(starts_with("EffIndiv")) %>% rowMeans
+
+EffComm <- clm(EffComm1 ~ usable, data = phase3)
+# EffComm_m <- clm(EffComm1 ~ usable, subset = ID_gender == "Men", data = phase3)
+# EffComm_f <- clm(EffComm1 ~ usable, subset = ID_gender == "Women", data = phase3)
+EffIndiv_scale <- lm(EffIndiv_scale ~ usable, data = phase3)
+# EffIndiv_scale_m <- lm(EffIndiv_scale ~ usable, subset = ID_gender == "Men", data = phase3)
+# EffIndiv_scale_f <- lm(EffIndiv_scale ~ usable, subset = ID_gender == "Women", data = phase3)
+
+Eff_scale_table <- t(coef(summary(EffComm))[nrow(coef(summary(EffComm))),])
+Eff_scale_table <- rbind(Eff_scale_table, t(coef(summary(EffIndiv_scale))[nrow(coef(summary(EffIndiv_scale))),]))
+Eff_scale_table <- data.frame(cbind(Eff_scale_table), row.names = c('Community scale', 'Individual item'))
+colnames(Eff_scale_table) <- c('Coef', 'SE', 't/z', 'p')
+# Eff_scale_table_m <- t(coef(summary(EffComm_m))[nrow(coef(summary(EffComm_m))),])
+# Eff_scale_table_m <- rbind(Eff_scale_table_m, t(coef(summary(EffIndiv_scale_m))[nrow(coef(summary(EffIndiv_scale_m))),]))
+# Eff_scale_table_f <- t(coef(summary(EffComm_f))[nrow(coef(summary(EffComm_f))),])
+# Eff_scale_table_f <- rbind(Eff_scale_table_f, t(coef(summary(EffIndiv_scale_f))[nrow(coef(summary(EffIndiv_scale_f))),]))
+# Eff_scale_table <- data.frame(cbind(Eff_scale_table_m, Eff_scale_table_f), row.names = c('Community scale', 'Individual item'))
+
+#colnames(Eff_scale_table) <- c('m.Coef', 'm.SE', 'm.t/z', 'm.p','f.Coef', 'f.SE', 'f.t/z', 'f.p')
+
+Eff_Descript <- phase3 %>% select(matches("EffIndiv\\d"), matches("EffComm\\d")) %>% mutate_all(funs(if_else(as.numeric(.) > 2, 1, 0)))
+```
+
+```{r, results = "asis"}
+print(xtable(Eff_scale_table, "Efficacy - individual scale and single community item", auto = TRUE, digits = c(2,2,2,2,4)), type = "latex")
+tableNominal(vars = as.data.frame(Eff_Descript), group = ID_gender[,1], cumsum = FALSE, longtable = TRUE, cap = "Descriptive statistics for efficacy items. Moderately and very true collapsed, a little bit true and not true at all collapsed.")
+```
+```{r}
+phase3 %<>% rename(GenRel1 = Q25, GenRel2 = Q26, GenRel3 = Q27, GenRel4 = Q28, GenRel5 = Q35, GenRel6 = Q36, GenRel7 = Q37, GenRel8 = Q38, GenRel9 = Q39, GenRel10 = Q40, GenRel11 = Q43, GenRel12 = Q44)
+
+phase3 %<>% mutate_at(vars(starts_with("GenRel")), funs(replace(., equals(., 5), NA)))
+rev_code <- c('GenRel1', 'GenRel2', 'GenRel5', 'GenRel6', 'GenRel7', 'GenRel8', 'GenRel11', 'GenRel12')
+phase3 %<>% mutate_at(rev_code, funs(dplyr::recode(as.numeric(.), `1` = 4, `2` = 3, `3` = 2, `4` = 1)))
+
+GenRel_comm_names <- c('GenRel1', 'GenRel3', 'GenRel5', 'GenRel7', 'GenRel9', 'GenRel11')
+GenRel_indiv_names <- c('GenRel2', 'GenRel4', 'GenRel6', 'GenRel8', 'GenRel10', 'GenRel12')
+
+# there is a lot of missing data in GenRel_comm items but never more than 2 items per subject so we won't exclude any subjects in mean calculations (use na.rm = T)
+phase3$GenRel_comm <- phase3 %>% select(GenRel_comm_names) %>% rowMeans(na.rm = TRUE)
+phase3$GenRel_indiv <- phase3 %>% select(GenRel_indiv_names) %>% rowMeans(na.rm = TRUE)
+GenRel_comm_scale <- lm(GenRel_comm ~ usable, data = phase3)
+GenRel_indiv_scale <- lm(GenRel_indiv ~ usable, data = phase3)
+# GenRel_comm_scale_m <- lm(GenRel_comm ~ usable, subset = ID_gender == "Men", data = phase3)
+# GenRel_comm_scale_f <- lm(GenRel_comm ~ usable, subset = ID_gender == "Women", data = phase3)
+# GenRel_indiv_scale_m <- lm(GenRel_indiv ~ usable, subset = ID_gender == "Men", data = phase3)
+# GenRel_indiv_scale_f <- lm(GenRel_indiv ~ usable, subset = ID_gender == "Women", data = phase3)
+
+phase3 %<>% mutate_at(c(GenRel_comm_names, GenRel_indiv_names), funs(factor(.)))
+
+GenRel_comm_models <- lapply(GenRel_comm_names, function(x) clm(as.formula(paste0(x, ' ~ usable')), data = phase3))
+GenRel_indiv_models <- lapply(GenRel_indiv_names, function(x) clm(as.formula(paste0(x, ' ~ usable')), data = phase3))
+# GenRel_comm_models_m <- lapply(GenRel_comm_names, function(x) clm(as.formula(paste0(x, ' ~ usable')), subset = ID_gender == "Men", data = phase3))
+# GenRel_comm_models_f <- lapply(GenRel_comm_names, function(x) clm(as.formula(paste0(x, ' ~ usable')), subset = ID_gender == "Women", data = phase3))
+# GenRel_indiv_models_m <- lapply(GenRel_indiv_names, function(x) clm(as.formula(paste0(x, ' ~ usable')), subset = ID_gender == "Men", data = phase3))
+# GenRel_indiv_models_f <- lapply(GenRel_indiv_names, function(x) clm(as.formula(paste0(x, ' ~ usable')), subset = ID_gender == "Women", data = phase3))
+
+GenRel_comm_table <- t(sapply(GenRel_comm_models, function(x) coef(summary(x))[nrow(coef(summary(x))),]))
+GenRel_comm_table <- data.frame(GenRel_comm_table, row.names = GenRel_comm_names)
+colnames(GenRel_comm_table) <- c('Coef', 'SE', 'Z', 'p')
+# GenRel_comm_table_m <- t(sapply(GenRel_comm_models_m, function(x) coef(summary(x))[nrow(coef(summary(x))),]))
+# GenRel_comm_table_f <- t(sapply(GenRel_comm_models_f, function(x) coef(summary(x))[nrow(coef(summary(x))),]))
+# GenRel_comm_table <- data.frame(cbind(GenRel_comm_table_m, GenRel_comm_table_f), row.names = GenRel_comm_names)
+# colnames(GenRel_comm_table) <- c('m.Coef', 'm.SE', 'm.Z', 'm.p','f.Coef', 'f.SE', 'f.Z', 'f.p')
+
+GenRel_indiv_table <- t(sapply(GenRel_indiv_models, function(x) coef(summary(x))[nrow(coef(summary(x))),]))
+GenRel_indiv_table <- data.frame(GenRel_indiv_table, row.names = GenRel_indiv_names)
+colnames(GenRel_indiv_table) <- c('Coef', 'SE', 'Z', 'p')
+# GenRel_indiv_table_m <- t(sapply(GenRel_indiv_models_m, function(x) coef(summary(x))[nrow(coef(summary(x))),]))
+# GenRel_indiv_table_f <- t(sapply(GenRel_indiv_models_f, function(x) coef(summary(x))[nrow(coef(summary(x))),]))
+# GenRel_indiv_table <- data.frame(cbind(GenRel_indiv_table_m, GenRel_indiv_table_f), row.names = GenRel_indiv_names)
+# colnames(GenRel_indiv_table) <- c('m.Coef', 'm.SE', 'm.Z', 'm.p','f.Coef', 'f.SE', 'f.Z', 'f.p')
+
+GenRel_scale_table <- coef(summary(GenRel_comm_scale))[nrow(coef(summary(GenRel_comm_scale))),]
+GenRel_scale_table <- bind_rows(GenRel_scale_table, coef(summary(GenRel_indiv_scale))[nrow(coef(summary(GenRel_indiv_scale))),])
+GenRel_scale_table <- data.frame(GenRel_scale_table, row.names = c('Community scale', 'Individual scale'))
+colnames(GenRel_scale_table) <- c('Coef', 'SE', 't', 'p')
+# GenRel_scale_table_m <- coef(summary(GenRel_comm_scale_m))[nrow(coef(summary(GenRel_comm_scale_m))),]
+# GenRel_scale_table_m <- bind_rows(GenRel_scale_table_m, coef(summary(GenRel_indiv_scale_m))[nrow(coef(summary(GenRel_indiv_scale_m))),])
+# GenRel_scale_table_f <- coef(summary(GenRel_comm_scale_f))[nrow(coef(summary(GenRel_comm_scale_f))),]
+# GenRel_scale_table_f <- bind_rows(GenRel_scale_table_f, coef(summary(GenRel_indiv_scale_f))[nrow(coef(summary(GenRel_indiv_scale_f))),])
+# GenRel_scale_table <- data.frame(bind_cols(GenRel_scale_table_m, GenRel_scale_table_f), row.names = c('Community scale', 'Individual scale'))
+# colnames(GenRel_scale_table) <- c('m.Coef', 'm.SE', 'm.t', 'm.p','f.Coef', 'f.SE', 'f.t', 'f.p')
+
+GenRelDescript <- phase3 %>% select(matches("GenRel\\d")) %>% mutate_all(funs(as.numeric))
+GenRelDescript %<>% mutate_at(rev_code, funs(dplyr::recode(as.numeric(.), `1` = 4, `2` = 3, `3` = 2, `4` = 1)))
+GenRelDescript %<>% mutate_all(funs(if_else(. > 2, 1, 0)))
+```
+
+```{r, results = "asis"}
+print(xtable(GenRel_comm_table, "Attitudes towards gender relations - community items", auto = TRUE, digits = c(2,2,2,2,4)), type = "latex")
+print(xtable(GenRel_indiv_table, "Attitudes towards gender relations - individual items", auto = TRUE, digits = c(2,2,2,2,4)), type = "latex")
+print(xtable(GenRel_scale_table, "Attitudes towards gender relations - scales", auto = TRUE, digits = c(2,2,2,2,4)), type = "latex")
+tableNominal(vars = as.data.frame(GenRelDescript), group = ID_gender[,1], cumsum = FALSE, longtable = TRUE, cap = "Descriptive statistics for attitudes towards gender relations items.  Agree and strongly agree collapsed.")
+```
+
+```{r}
+phase3 %<>% rename(AcceptIPA1 = Q46, AcceptIPA2 = Q47, AcceptIPA3 = Q48, AcceptIPA4 = Q49, AcceptIPA5 = Q50, AcceptIPA6 = Q51, AcceptIPA7 = Q53, AcceptIPA8 = Q54, AcceptIPA9 = Q55)
+AcceptIPA_names <- phase3 %>% select(starts_with("AcceptIPA")) %>% names
+phase3 %<>% mutate_at(AcceptIPA_names, funs(replace(., equals(., 2), 0)))
+phase3 %<>% mutate_at(AcceptIPA_names, funs(replace(., equals(., 3), NA)))
+phase3$AcceptIPA_scale <- phase3 %>% select(starts_with("AcceptIPA")) %>% rowSums
+
+AcceptIPA_scale <- lm(AcceptIPA_scale ~ usable, data = phase3)
+AcceptIPA_scale_binomial <- glm(cbind(AcceptIPA_scale, 9 - AcceptIPA_scale) ~ usable, data=phase3, family=binomial(link="logit"))
+# AcceptIPA_scale_m <- lm(AcceptIPA_scale ~ usable, subset = ID_gender == "Men", data = phase3)
+# AcceptIPA_scale_f <- lm(AcceptIPA_scale ~ usable, subset = ID_gender == "Women", data = phase3)
+# AcceptIPA_scale_m_binomial <- glm(cbind(AcceptIPA_scale, 9 - AcceptIPA_scale) ~ usable, data=phase3, subset= ID_gender=="Men", family=binomial(link="logit"))
+# AcceptIPA_scale_f_binomial <- glm(cbind(AcceptIPA_scale, 9 - AcceptIPA_scale) ~ usable, data=phase3, subset= ID_gender=="Women", family=binomial(link="logit"))
+
+AcceptIPA_items <- lapply(AcceptIPA_names, function(x) glm(as.formula(paste0(x, ' ~ usable')), family = binomial(link = "logit"), data = phase3))
+# AcceptIPA_items_m <- lapply(AcceptIPA_names, function(x) glm(as.formula(paste0(x, ' ~ usable')), subset = ID_gender == "Men", family = binomial(link = "logit"), data = phase3))
+# AcceptIPA_items_f <- lapply(AcceptIPA_names, function(x) glm(as.formula(paste0(x, ' ~ usable')), subset = ID_gender == "Women", family = binomial(link = "logit"), data = phase3))  
+
+AcceptIPA_table <- t(sapply(AcceptIPA_items, function(x) coef(summary(x))[nrow(coef(summary(x))),]))
+AcceptIPA_table <- rbind(AcceptIPA_table, t(coef(summary(AcceptIPA_scale))[nrow(coef(summary(AcceptIPA_scale))),]),
+                                                t(coef(summary(AcceptIPA_scale_binomial))[nrow(coef(summary(AcceptIPA_scale_binomial))),]))
+AcceptIPA_table <- data.frame(AcceptIPA_table, row.names = c(AcceptIPA_names, 'Accept IPA', 'Accept IPA binomial model'))
+colnames(AcceptIPA_table) <- c('Coef', 'SE', 't/z', 'p')
+# AcceptIPA_table_m <- t(sapply(AcceptIPA_items_m, function(x) coef(summary(x))[nrow(coef(summary(x))),]))
+# AcceptIPA_table_f <- t(sapply(AcceptIPA_items_f, function(x) coef(summary(x))[nrow(coef(summary(x))),]))
+# AcceptIPA_table_m <- rbind(AcceptIPA_table_m, t(coef(summary(AcceptIPA_scale_m))[nrow(coef(summary(AcceptIPA_scale_m))),]),
+#                                                 t(coef(summary(AcceptIPA_scale_m_binomial))[nrow(coef(summary(AcceptIPA_scale_m_binomial))),]))
+# AcceptIPA_table_f <- rbind(AcceptIPA_table_f, t(coef(summary(AcceptIPA_scale_f))[nrow(coef(summary(AcceptIPA_scale_f))),]),
+#                                                 t(coef(summary(AcceptIPA_scale_f_binomial))[nrow(coef(summary(AcceptIPA_scale_f_binomial))),]))
+# AcceptIPA_table <- data.frame(cbind(AcceptIPA_table_m, AcceptIPA_table_f), row.names = c(AcceptIPA_names, 'Accept IPA', 'Accept IPA binomial model'))
+# colnames(AcceptIPA_table) <- c('m.Coef', 'm.SE', 'm.t/z', 'm.p','f.Coef', 'f.SE', 'f.t/z', 'f.p')
+```
+
+```{r, results = "asis"}
+print(xtable(AcceptIPA_table, "Acceptability of IPA - individual items and then scale.", auto = TRUE, digits = c(2,2,2,2,4)), type = "latex")
+tableNominal(vars = phase3 %>% select(matches("AcceptIPA\\d")) %>% as.data.frame, group = ID_gender[,1], cumsum = FALSE, longtable = TRUE, cap = "Descriptive statistics for acceptability of IPA items.")
+```
+
+```{r}
+split_into_vars <- function(df, var_name, max) {
+  for(i in 1:max) {
+    df[[paste0(var_name,'_',i)]] <- NA
+  }
+  splitted <- strsplit(df[[var_name]],',', fixed = TRUE)
+  for(i in 1:length(splitted)) {
+    for(j in splitted[[i]]) {
+      if(!is.na(j)) {
+        df[[paste0(var_name,'_',j)]][i] <- 1 
+      }
+    }
+  }
+  return(df)
+}
+
+phase3 <- split_into_vars(phase3, 'Q61', 10)
+phase3 %<>% mutate_at(vars(starts_with("Q61_")), funs(replace(., is.na(.), 0)))
+phase3 %<>% mutate_at(vars(starts_with("Q61_"),-Q61_9), funs(ifelse(Q61_9==1, NA, .)))
+phase3 %<>% select(-Q61_9)
+
+phase3 %<>% rename(ChildIPA1b_seek_help_family_friends = Q61_1, ChildIPA1b_seek_help_org = Q61_2, ChildIPA1b_seek_help_authorities = Q61_3, ChildIPA1b_leave_relationship = Q61_4, ChildIPA1b_tolerate_avoid_divorce = Q61_5, ChildIPA1b_tolerate_hope_not_hurt_children = Q61_6, ChildIPA1b_dont_tell = Q61_7, ChildIPA1b_tell_children_leave = Q61_10, ChildIPA1b_none_of_above = Q61_8, ChildIPA2 = Q58, ChildIPA3 = Q270)
+
+ChildIPA1b_names <- phase3 %>% select(starts_with("ChildIPA1b_")) %>% names
+
+ChildIPA1b_models <- lapply(ChildIPA1b_names, function(x) glm(as.formula(paste0(x, ' ~ usable')), family = binomial(link = "logit"), data = phase3))
+
+phase3$ChildIPA1b_seek_scale <- phase3 %>% select(starts_with("ChildIPA1b_seek_")) %>% rowSums
+phase3$ChildIPA1b_seek_scale_size <- 3
+ChildIPA1b_seek_scale <- glm(cbind(ChildIPA1b_seek_scale, ChildIPA1b_seek_scale_size - ChildIPA1b_seek_scale) ~ usable, family = binomial(link = "logit"), data = phase3)
+
+ChildIPA23_names <- c('ChildIPA2', 'ChildIPA3')
+phase3 %<>% mutate_at(ChildIPA23_names, funs(replace(., equals(., 5), NA)))
+phase3 %<>% mutate_at(ChildIPA23_names, funs(factor(.)))
+
+ChildIPA23_models <- lapply(ChildIPA23_names, function(x) clm(as.formula(paste0(x, ' ~ usable')), data = phase3))
+
+ChildIPA_table <- t(sapply(ChildIPA1b_models, function(x) coef(summary(x))[nrow(coef(summary(x))),]))
+ChildIPA_table <- rbind(ChildIPA_table, t(coef(summary(ChildIPA1b_seek_scale))[nrow(coef(summary(ChildIPA1b_seek_scale))),]),
+t(sapply(ChildIPA23_models, function(x) coef(summary(x))[nrow(coef(summary(x))),])))
+
+
+ChildIPA_table <- data.frame(ChildIPA_table, row.names = c(ChildIPA1b_names, 'ChildIPA1b_seek_scale', ChildIPA23_names))
+colnames(ChildIPA_table) <- c('Coef', 'SE', 'z', 'p')
+
+# ChildIPA_table <- data.frame(cbind(ChildIPA_table_m, ChildIPA_table_f), row.names = c(ChildIPA1b_names, 'ChildIPA1b_seek_scale', ChildIPA23_names))
+# colnames(ChildIPA_table) <- c('m.Coef', 'm.SE', 'm.t/z', 'm.p','f.Coef', 'f.SE', 'f.t/z', 'f.p')
+
+```
+
+```{r, results = "asis"}
+print(xtable(ChildIPA_table, "IPA and children - Q61 items, 3 item help-seeking subscale, followed by Q58 and Q270.", auto = TRUE, digits = c(2,2,2,2,4)), type = "latex")
+tableNominal(vars = phase3 %>% select(starts_with("ChildIPA1b")) %>% as.data.frame, group = ID_gender[,1], cumsum = FALSE, longtable = TRUE, cap = "Descriptive statistics for child IPA 1b/Q61 options.")
+```
+
+```{r}
+phase3 %<>% rename(HelpAtt1a = Q63, HelpAtt2a = Q65)
+HelpAtt1a2a_names <- c('HelpAtt1a', 'HelpAtt2a')
+phase3 %<>% mutate_at(HelpAtt1a2a_names, funs(replace(., equals(., 6), NA)))
+phase3 %<>% mutate_at(HelpAtt1a2a_names, funs(factor(.)))
+
+HelpAtt1a2a_models <- lapply(HelpAtt1a2a_names, function(x) clm(as.formula(paste0(x, ' ~ usable')), data = phase3))
+# HelpAtt_models_m <- lapply(HelpAtt1a2a_names, function(x) clm(as.formula(paste0(x, ' ~ usable')), subset = ID_gender == "Men", data = phase3))
+# HelpAtt_models_f <- lapply(HelpAtt1a2a_names, function(x) clm(as.formula(paste0(x, ' ~ usable')), subset = ID_gender == "Women", data = phase3))
+
+phase3 <- split_into_vars(phase3, 'Q64', 10)
+phase3 %<>% mutate_at(vars(starts_with("Q64_"), -ends_with("_TEXT")), funs(replace(., is.na(.), 0)))
+phase3 %<>% mutate_at(vars(starts_with("Q64_"), -ends_with("_TEXT")), funs(ifelse(is.na(Q64), NA, .)))
+phase3 <- split_into_vars(phase3, 'Q66', 10)
+phase3 %<>% mutate_at(vars(starts_with("Q66_"), -ends_with("_TEXT")), funs(replace(., is.na(.), 0)))
+phase3 %<>% mutate_at(vars(starts_with("Q66_"), -ends_with("_TEXT")), funs(ifelse(is.na(Q66), NA, .)))
+
+phase3 %<>% rename(HelpAtt1b_family = Q64_1, HelpAtt1b_partners_family = Q64_2, HelpAtt1b_friends = Q64_3, HelpAtt1b_relig_leaders = Q64_4,  HelpAtt1b_police = Q64_5, HelpAtt1b_soc_inst = Q64_6, HelpAtt1b_laywer = Q64_7, HelpAtt1b_doctor = Q64_8, HelpAtt1b_mental_health = Q64_9, HelpAtt1b_other = Q64_10, HelpAtt2b_family = Q66_1, HelpAtt2b_partners_family = Q66_2, HelpAtt2b_friends = Q66_3, HelpAtt2b_relig_leaders = Q66_4,  HelpAtt2b_police = Q66_5, HelpAtt2b_soc_inst = Q66_6, HelpAtt2b_laywer = Q66_7, HelpAtt2b_doctor = Q66_8, HelpAtt2b_mental_health = Q66_9, HelpAtt2b_other = Q66_10)
+
+HelpAtt1b2b_names <- phase3 %>% select(starts_with("HelpAtt1b_"), starts_with("HelpAtt2b_")) %>% names
+HelpAtt1b2b_models <- lapply(HelpAtt1b2b_names, function(x) glm(as.formula(paste0(x, ' ~ usable')), family = binomial(link = "logit"), data = phase3))
+
+phase3 <- split_into_vars(phase3, 'Q70', 10)
+phase3 %<>% mutate_at(vars(starts_with("Q70_")), funs(replace(., is.na(.), 0)))
+phase3 %<>% mutate_at(vars(starts_with("Q70_")), funs(ifelse(is.na(Q70), NA, .)))
+phase3 %<>% mutate_at(vars(starts_with("Q70_"),-Q70_10), funs(ifelse(Q70_10==1, NA, .)))
+phase3 %<>% select(-Q70_10)
+phase3 %<>% rename(HelpAtt1d_ashamed = Q70_1, HelpAtt1d_stigma = Q70_2, HelpAtt1d_dont_know_where = Q70_3, HelpAtt1d_nobody_able_help = Q70_4, HelpAtt1d_thinks_private = Q70_5, HelpAtt1d_if_partner_find_would_hurt = Q70_6, HelpAtt1d_worse_for_children = Q70_7, HelpAtt1d_NA_none_of_options_mentioned = Q70_8, HelpAtt1d_dont_know = Q70_9)
+
+HelpAtt1d_names <- phase3 %>% select(starts_with("HelpAtt1d_")) %>% names
+HelpAtt1d_models <- lapply(HelpAtt1d_names, function(x) glm(as.formula(paste0(x, ' ~ usable')), family = binomial(link = "logit"), data = phase3))
+
+phase3 <- split_into_vars(phase3, 'Q72', 9)
+phase3 %<>% mutate_at(vars(starts_with("Q72_")), funs(replace(., is.na(.), 0)))
+phase3 %<>% mutate_at(vars(starts_with("Q72_")), funs(ifelse(is.na(Q72), NA, .)))
+phase3 %<>% mutate_at(vars(starts_with("Q72_"),-Q72_9), funs(ifelse(Q72_9==1, NA, .)))
+phase3 %<>% select(-Q72_9)
+phase3 %<>% rename(HelpAtt2d_ashamed = Q72_1, HelpAtt2d_stigma = Q72_2, HelpAtt2d_dont_know_where = Q72_3, HelpAtt2d_nobody_able_help = Q72_4, HelpAtt2d_thinks_private = Q72_5, HelpAtt2d_worse_for_children = Q72_6, HelpAtt2d_none_of_options_mentioned = Q72_7, HelpAtt2d_dont_know = Q72_8)
+
+HelpAtt2d_names <- phase3 %>% select(starts_with("HelpAtt2d_")) %>% names
+HelpAtt2d_models <- lapply(HelpAtt2d_names, function(x) glm(as.formula(paste0(x, ' ~ usable')), family = binomial(link = "logit"), data = phase3))
+
+phase3 <- split_into_vars(phase3, 'Q68', 17)
+phase3 %<>% mutate_at(vars(starts_with("Q68_")), funs(replace(., is.na(.), 0)))
+phase3 %<>% mutate_at(vars(starts_with("Q68_")), funs(ifelse(is.na(Q68), NA, .)))
+phase3 %<>% mutate_at(vars(starts_with("Q68_"),-Q68_17), funs(ifelse(Q68_17==1, NA, .)))
+phase3 %<>% select(-Q68_17)
+
+phase3 %<>% rename(HelpAtt3b_dont_get_involved = Q68_1, HelpAtt3b_separate_couple = Q68_2, HelpAtt3b_talk_to_wife = Q68_3, HelpAtt3b_talk_to_husband = Q68_4, HelpAtt3b_take_children_out = Q68_5, HelpAtt3b_call_organization = Q68_6, HelpAtt3b_call_police = Q68_7, HelpAtt3b_lama_seek_help_org = Q68_8, HelpAtt3b_lama_seek_help_police = Q68_9, HelpAtt3b_lama_seek_help_family_friends = Q68_10, HelpAtt3b_lama_seek_help_relig_leaders = Q68_11, HelpAtt3b_bassel_seek_help_org = Q68_12, HelpAtt3b_bassel_seek_help_family_friends = Q68_13, HelpAtt3b_bassel_seek_help_relig_leaders = Q68_14, HelpAtt3b_NA_none_of_above = Q68_15)
+
+HelpAtt3d_names <- phase3 %>% select(starts_with("HelpAtt3b_")) %>% names
+HelpAtt3d_models <- lapply(HelpAtt3d_names, function(x) glm(as.formula(paste0(x, ' ~ usable')), family = binomial(link = "logit"), data = phase3))
+
+HelpAtt1a2a_table <- data.frame(t(sapply(HelpAtt1a2a_models, function(x) coef(summary(x))[nrow(coef(summary(x))),])), row.names = HelpAtt1a2a_names)
+colnames(HelpAtt1a2a_table) <- c('Coef', 'SE', 'Z', 'p')
+HelpAtt1b2b_table <- data.frame(t(sapply(HelpAtt1b2b_models, function(x) coef(summary(x))[nrow(coef(summary(x))),])), row.names = HelpAtt1b2b_names)
+colnames(HelpAtt1b2b_table) <- c('Coef', 'SE', 'Z', 'p') 
+HelpAtt1d_table <- data.frame(t(sapply(HelpAtt1d_models, function(x) coef(summary(x))[nrow(coef(summary(x))),])), row.names = HelpAtt1d_names)
+colnames(HelpAtt1d_table) <- c('Coef', 'SE', 'Z', 'p')
+HelpAtt2d_table <- data.frame(t(sapply(HelpAtt2d_models, function(x) coef(summary(x))[nrow(coef(summary(x))),])), row.names = HelpAtt2d_names)
+colnames(HelpAtt2d_table) <- c('Coef', 'SE', 'Z', 'p')
+HelpAtt3d_table <- data.frame(t(sapply(HelpAtt3d_models, function(x) coef(summary(x))[nrow(coef(summary(x))),])), row.names = HelpAtt3d_names)
+colnames(HelpAtt3d_table) <- c('Coef', 'SE', 'Z', 'p')
+```
+```{r, results = "asis"}
+print(xtable(HelpAtt1a2a_table, "Help-seeking attitudes - Q63, Q65", auto = TRUE, digits = c(2,2,2,2,4)), type = "latex")
+print(xtable(HelpAtt1b2b_table, "Help-seeking attitudes - Q64, Q66", auto = TRUE, digits = c(2,2,2,2,4)), type = "latex")
+print(xtable(HelpAtt1d_table, "Help-seeking attitudes - Q70", auto = TRUE, digits = c(2,2,2,2,4)), type = "latex")
+print(xtable(HelpAtt2d_table, "Help-seeking attitudes - Q72", auto = TRUE, digits = c(2,2,2,2,4)), type = "latex")
+print(xtable(HelpAtt3d_table, "Help-seeking attitudes - Q68", auto = TRUE, digits = c(2,2,2,2,4)), type = "latex")
+```
+
+```{r}
+phase3 %<>% rename(WASS1 = Q88, WASS2 = Q89, WASS3 = Q90, WASS4 = Q91, WASS5 = Q92, WASS6 = Q93)
+phase3 %<>% mutate_at(vars(starts_with("WASS")), funs(replace(., equals(., 7), NA)))
+phase3$WASS_scale <- phase3 %>% select(starts_with("WASS")) %>% select(-WASS6) %>% rowMeans
+phase3$WASS6 <- factor(phase3$WASS6)
+
+WASS_scale <- lm(WASS_scale ~ usable, data = phase3)
+WASS6 <- clm(WASS6 ~ usable, data = phase3)
+# WASS_scale_m <- lm(WASS_scale ~ usable, subset = ID_gender == "Men", data = phase3)
+# WASS_scale_f <- lm(WASS_scale ~ usable, subset = ID_gender == "Women", data = phase3)
+# WASS6_m <- clm(WASS6 ~ usable, subset = ID_gender == "Men", data = phase3)
+# WASS6_f <- clm(WASS6 ~ usable, subset = ID_gender == "Women", data = phase3)
+
+
+WASS_scale_table <- t(coef(summary(WASS_scale))[nrow(coef(summary(WASS_scale))),])
+WASS_scale_table <- data.frame(WASS_scale_table, row.names = 'WASS 1-5 scale')
+colnames(WASS_scale_table) <- c('Coef', 'SE', 't', 'p')
+# WASS_scale_table_m <- coef(summary(WASS_scale_m))[nrow(coef(summary(WASS_scale_m))),]
+# WASS_scale_table_f <- coef(summary(WASS_scale_f))[nrow(coef(summary(WASS_scale_f))),]
+# WASS_scale_table <- data.frame(t(c(WASS_scale_table_m, WASS_scale_table_f)), row.names = 'WASS 1-5 scale')
+# colnames(WASS_scale_table) <- c('m.Coef', 'm.SE', 'm.t', 'm.p','f.Coef', 'f.SE', 'f.t', 'f.p')
+
+WASS6_table <- t(coef(summary(WASS6))[nrow(coef(summary(WASS6))),])
+WASS6_table <- data.frame(WASS6_table, row.names = 'WASS6 item')
+colnames(WASS6_table) <- c('Coef', 'SE', 't', 'p')
+
+# WASS6_table_m <- coef(summary(WASS6_m))[nrow(coef(summary(WASS6_m))),]
+# WASS6_table_f <- coef(summary(WASS6_f))[nrow(coef(summary(WASS6_f))),]
+# WASS6_table <- data.frame(t(c(WASS6_table_m, WASS6_table_f)), row.names = 'WASS6 item')
+# colnames(WASS6_table) <- c('m.Coef', 'm.SE', 'm.Z', 'm.p','f.Coef', 'f.SE', 'f.Z', 'f.p')
+
+```
+
+```{r, results = "asis"}
+print(xtable(WASS_scale_table, "WASS 1-5 - scale", auto = TRUE, digits = c(2,2,2,2,4)), type = "latex")
+print(xtable(WASS6_table, "WASS6 - single item 6", auto = TRUE, digits = c(2,2,2,2,4)), type = "latex")
+```
+
+```{r}
+phase3 %<>% rename(IPACTS1 = Q95, IPACTS2 = Q96, IPACTS3 = Q99, IPACTS4 = Q100, IPACTS5 = Q101, IPACTS6 = Q102)
+IPACTS_names <- phase3 %>% select(starts_with("IPACTS")) %>% names
+phase3 %<>% mutate_at(IPACTS_names, funs(replace(., equals(., 9), NA)))
+IPACTS_items <- phase3 %>% select(IPACTS_names) %>% mutate_all(funs(if_else(. < 7, 1, 0)))
+
+phase3$IPACTS_scale <- IPACTS_items %>% rowSums
+phase3$IPACTS_scale_size <- 6
+IPACTS_items$usable <- phase3$usable
+
+IPACTS_items_models <- lapply(IPACTS_names, function(x) glm(as.formula(paste0(x, ' ~ usable')), family = binomial(link = "logit"), data = IPACTS_items))
+
+IPACTS_scale <- glm(cbind(IPACTS_scale, IPACTS_scale_size-IPACTS_scale) ~ usable, family = binomial(link = "logit"), data = phase3)
+# IPACTS_scale_m <- glm(cbind(IPACTS_scale, IPACTS_scale_size-IPACTS_scale) ~ usable, family = binomial(link = "logit"), subset = ID_gender == "Men", data = phase3)
+# IPACTS_scale_f <- glm(cbind(IPACTS_scale, IPACTS_scale_size-IPACTS_scale) ~ usable, family = binomial(link = "logit"), subset = ID_gender == "Women", data = phase3)
+
+IPACTS_table <- t(coef(summary(IPACTS_scale))[nrow(coef(summary(IPACTS_scale))),])
+IPACTS_table <- rbind(IPACTS_table, t(sapply(IPACTS_items_models, function(x) coef(summary(x))[nrow(coef(summary(x))),])) )
+IPACTS_table <- data.frame(IPACTS_table, row.names = c('IPA CTS2-S',IPACTS_names))
+colnames(IPACTS_table) <- c('Coef', 'SE', 'Z', 'p')
+# IPACTS_table_m <- coef(summary(IPACTS_scale_m))[nrow(coef(summary(IPACTS_scale_m))),]
+# IPACTS_table_f <- coef(summary(IPACTS_scale_f))[nrow(coef(summary(IPACTS_scale_f))),]
+# IPACTS_table <- data.frame(t(c(IPACTS_table_m, IPACTS_table_f)), row.names = 'IPA CTS2-S')
+# colnames(IPACTS_table) <- c('m.Coef', 'm.SE', 'm.Z', 'm.p','f.Coef', 'f.SE', 'f.Z', 'f.p')
+
+```
+
+```{r, results = "asis"}
+print(xtable((IPACTS_table), "IPA exposure CTS2-S scale, then items, 1 if exposure in past year.", auto = TRUE, digits = c(2,2,2,2,4)), type = "latex")
+tableNominal(vars = as.data.frame(IPACTS_items %>% select(-usable)), group = ID_gender[,1], cumsum = FALSE, longtable = TRUE, cap = "Descriptive statistics for IPA exposure CTS2-S items, exposure in past year collapsed.")
+```
