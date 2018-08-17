@@ -57,7 +57,7 @@ phase3$usable <- factor(phase3$usable, levels = levels(factor(phase3$usable))[c(
 phase3 <- left_join(phase3, conditions %>% select(ID, cond), by = c("ID" = "ID") )
 
 #excluding campaign 2 for now
-phase3 <- phase3[phase3$usable != "Campaign2" & !is.na(phase3$usable),]
+#phase3 <- phase3[phase3$usable != "Campaign2" & !is.na(phase3$usable),]
 #ij_c <- inner_join(campaign, phase3, by = "ID")
 #ij_p <- inner_join(phase3, campaign, by = "ID")
 #aj_c <- anti_join(campaign, phase3, by = "ID")
@@ -333,6 +333,7 @@ print(xtable(HelpAtt1b2b_table, "Help-seeking attitudes - Q64, Q66", auto = TRUE
 print(xtable(HelpAtt1d_table, "Help-seeking attitudes - Q70", auto = TRUE, digits = c(2,2,2,2,4)), type = "latex")
 print(xtable(HelpAtt2d_table, "Help-seeking attitudes - Q72", auto = TRUE, digits = c(2,2,2,2,4)), type = "latex")
 print(xtable(HelpAtt3d_table, "Help-seeking attitudes - Q68", auto = TRUE, digits = c(2,2,2,2,4)), type = "latex")
+tableNominal(vars = phase3 %>% select(starts_with("HelpAtt")) %>% as.data.frame, group = ID_gender[,1], cumsum = FALSE, longtable = TRUE, cap = "Descriptive statistics for help-seeking attitudes, all subjects")
 ```
 
 ```{r}
